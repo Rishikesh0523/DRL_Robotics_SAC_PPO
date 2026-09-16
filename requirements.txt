@@ -1,0 +1,12 @@
+# Python deps for the standalone simulator, training, evaluation and plots.
+# ROS 2 / Gazebo are NOT needed for anything except ros2/*.py (those need a sourced ROS 2 Jazzy).
+# numpy>=2 is REQUIRED: the shipped models/*.zip were pickled with NumPy 2 (numpy._core).
+# Ubuntu 24.04's apt matplotlib is built against NumPy 1.x, so matplotlib must come from pip (>=3.9).
+numpy>=2
+torch>=2.1
+stable-baselines3>=2.3
+gymnasium>=0.29
+pandas>=2.0
+matplotlib>=3.9
+imageio>=2.31
+tensorboard>=2.14

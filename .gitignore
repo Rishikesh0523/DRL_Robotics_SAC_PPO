@@ -1,0 +1,40 @@
+# ---- Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+venv/
+
+# ---- IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# ---- training artefacts: keep only what reproduces the curves
+runs/*/tb/
+runs/*/checkpoints/
+runs/*/stdout.log
+runs/*/final_model.zip
+runs_nominal/*/tb/
+runs_nominal/*/checkpoints/
+runs_nominal/*/stdout.log
+runs_nominal/*/final_model.zip
+runs_local/
+smoke_runs/
+results_gazebo_test/
+
+# ---- large / temporary files
+*.tgz
+*.tar.gz
+*.log
+*.npy
+RELEASE_INFO.txt
+
+# The shipped policies and the best model of each run ARE tracked (small, needed for the demo).
+# Any other .zip is ignored.
+*.zip
+!models/*.zip
+!runs/*/best_model.zip
+!runs_nominal/*/best_model.zip

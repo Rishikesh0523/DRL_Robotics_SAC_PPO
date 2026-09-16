@@ -1,0 +1,26 @@
+{
+  "tag": "sac_dr_seed3_local",
+  "algo": "sac",
+  "seed": 3,
+  "steps": 300000,
+  "n_envs": 1,
+  "wall_clock_s": 2443.0351819992065,
+  "steps_per_s": 122.79806783400528,
+  "device": "cpu",
+  "final_model": {
+    "success_rate": 0.98,
+    "collision_rate": 0.02,
+    "timeout_rate": 0.0,
+    "mean_return": 36.74090307,
+    "std_return": 9.199022913337366,
+    "mean_length": 47.16
+  },
+  "best_model": {
+    "success_rate": 0.98,
+    "collision_rate": 0.02,
+    "timeout_rate": 0.0,
+    "mean_return": 35.85664058,
+    "std_return": 9.975207783229953,
+    "mean_length": 47.99
+  }
+}

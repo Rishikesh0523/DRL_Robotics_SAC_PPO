@@ -1,0 +1,26 @@
+{
+  "tag": "sac_dr_seed0",
+  "algo": "sac",
+  "seed": 0,
+  "steps": 300000,
+  "n_envs": 1,
+  "wall_clock_s": 3784.4653313159943,
+  "steps_per_s": 79.27143565500155,
+  "device": "cuda",
+  "final_model": {
+    "success_rate": 1.0,
+    "collision_rate": 0.0,
+    "timeout_rate": 0.0,
+    "mean_return": 37.32172499000001,
+    "std_return": 6.624907554117687,
+    "mean_length": 47.0
+  },
+  "best_model": {
+    "success_rate": 0.98,
+    "collision_rate": 0.02,
+    "timeout_rate": 0.0,
+    "mean_return": 36.68014068,
+    "std_return": 9.880550003432447,
+    "mean_length": 53.44
+  }
+}

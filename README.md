@@ -75,6 +75,26 @@ python3 ros2/drl_inference_node.py --model models/sac_best.zip --episodes 5 --tr
 Useful flags of the inference node: `--goal X Y`, `--start X Y`, `--start-yaw RAD`, `--no-teleport`
 (start from wherever the robot is), `--speed-scale 0.7`, `--verbose`.
 
+### Interactive demo: click the start and the goal
+
+Gazebo's own GUI has no click-to-pose tool, so the interactive mode uses RViz next to Gazebo.
+RViz shows the arena, the LiDAR scan, the robot (at its true pose), the goal disc and the driven path.
+
+```bash
+bash scripts/demo_interactive.sh            # SAC (or: ppo / pctrl)
+SPEED=0.7 bash scripts/demo_interactive.sh  # slower robot, recommended in VirtualBox
+```
+
+In the RViz window:
+1. Click **2D Pose Estimate** in the toolbar, then click on the map and drag to set the heading.
+   The robot teleports there in Gazebo.
+2. Click **2D Goal Pose**, then click (and drag) where the robot should go. The episode starts immediately
+   and the terminal prints the outcome.
+3. Repeat as often as you like. Goals inside a wall or pillar are rejected with a warning. Ctrl+C quits.
+
+Manual equivalent: `ros2 launch ros2/gazebo_demo.launch.py rviz:=true` in one terminal and
+`python3 ros2/drl_inference_node.py --model models/sac_best.zip --interactive` in another.
+
 ---
 
 ## 2. Results

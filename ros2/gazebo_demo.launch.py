@@ -82,7 +82,9 @@ def generate_launch_description():
             "/cmd_vel@geometry_msgs/msg/Twist]gz.msgs.Twist",
             "/odom@nav_msgs/msg/Odometry[gz.msgs.Odometry",
             "/lidar@sensor_msgs/msg/LaserScan[gz.msgs.LaserScan",
-            "/tf@tf2_msgs/msg/TFMessage[gz.msgs.Pose_V",
+            # /tf is NOT bridged: the MecanumDrive plugin's odom->base_link is dead-reckoned from the
+            # spawn point and ignores teleports.  drl_inference_node.py broadcasts odom->base_link from
+            # the ground-truth pose instead, so RViz shows the robot where it really is.
             "/joint_states@sensor_msgs/msg/JointState[gz.msgs.Model",
             # Clean pose source: only the OdometryPublisher plugin writes this topic (world-frame
             # pose that follows teleports).  /odom itself is written by BOTH the MecanumDrive
@@ -100,8 +102,9 @@ def generate_launch_description():
                            arguments=["0", "0", "0", "0", "0", "0", "lidar_sensor_link",
                                       "ros_gz_sim_demos/base_link/lidar_sensor"])
 
-    rviz_node = Node(package="rviz2", executable="rviz2", parameters=[{"use_sim_time": True}],
-                     condition=IfCondition(rviz))
+    rviz_config = os.path.join(os.path.dirname(os.path.abspath(__file__)), "demo.rviz")
+    rviz_node = Node(package="rviz2", executable="rviz2", arguments=["-d", rviz_config],
+                     parameters=[{"use_sim_time": True}], condition=IfCondition(rviz))
 
     return LaunchDescription(args + [resource_env, gz_gui, gz_headless, robot_state_publisher, spawn, bridge,
                                      map_to_odom, lidar_frame_fix, rviz_node])

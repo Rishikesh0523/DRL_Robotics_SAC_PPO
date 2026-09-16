@@ -37,7 +37,7 @@ def main():
     a = p.parse_args()
     ns = argparse.Namespace(policy="pctrl", model=None, algo=None, scan_topic="/lidar", odom_topic="/odom",
                             cmd_topic="/cmd_vel", lidar_floor=0.08, lidar_yaw_offset_deg=a.lidar_yaw_offset_deg,
-                            speed_scale=1.0, seed=0, world=a.world, model_name=a.model_name, pose_source="gz",
+                            speed_scale=1.0, seed=0, world=a.world, model_name=a.model_name, pose_source="gz", interactive=False, publish_tf=False,
                             vel_obs="command")
     rclpy.init()
     node = DRLInferenceNode(ns)

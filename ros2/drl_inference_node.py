@@ -38,9 +38,12 @@ import rclpy
 from geometry_msgs.msg import PoseStamped, Twist
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
-from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy
+from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy, QoSDurabilityPolicy
 from sensor_msgs.msg import LaserScan
 from std_msgs.msg import String
+from geometry_msgs.msg import PoseWithCovarianceStamped, TransformStamped
+from visualization_msgs.msg import Marker, MarkerArray
+from tf2_ros import TransformBroadcaster
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))  # make `nav2d` importable without installation
@@ -80,8 +83,22 @@ class DRLInferenceNode(Node):
         self.pose_topic = pose_topic
         self.create_subscription(Odometry, pose_topic, self._odom_cb, 20)
         self.cmd_pub = self.create_publisher(Twist, args.cmd_topic, 10)
-        self.goal_pub = self.create_publisher(PoseStamped, "/goal_pose", 10)
         self.status_pub = self.create_publisher(String, "/drl/status", 10)
+        # RViz visualisation: arena (latched), goal marker, driven path
+        latched = QoSProfile(depth=1, durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
+        self.arena_pub = self.create_publisher(MarkerArray, "/drl/arena", latched)
+        self.goal_marker_pub = self.create_publisher(Marker, "/drl/goal", latched)
+        self.path_pub = self.create_publisher(Marker, "/drl/path", 10)
+        self.tf_broadcaster = TransformBroadcaster(self) if args.publish_tf else None
+
+        # interactive mode: RViz "2D Pose Estimate" -> /initialpose (start), "2D Goal Pose" -> /goal_pose (goal)
+        self.goal_pub = None
+        self.clicked_goal = None
+        if args.interactive:
+            self.create_subscription(PoseWithCovarianceStamped, "/initialpose", self._initialpose_cb, 10)
+            self.create_subscription(PoseStamped, "/goal_pose", self._rviz_goal_cb, 10)
+        else:
+            self.goal_pub = self.create_publisher(PoseStamped, "/goal_pose", 10)
 
         self.scan = None
         self.scan_stamp = 0.0
@@ -91,6 +108,7 @@ class DRLInferenceNode(Node):
         self.last_cmd = np.zeros(3)   # last commanded [vx, vy, w]; used as the velocity feature
         self.odom_stamp = 0.0
         self.odom_count = 0
+        self.episode_running = False
 
         self.policy, self.policy_name = self._load_policy(args)
         self.rng = np.random.default_rng(args.seed)
@@ -119,6 +137,85 @@ class DRLInferenceNode(Node):
             self.vel[:] = (t.linear.x, t.linear.y, t.angular.z)
             self.odom_stamp = time.time()
             self.odom_count += 1
+        if self.tf_broadcaster is not None:
+            # odom -> base_link from the ground-truth pose so RViz shows the robot where it really is
+            tf = TransformStamped()
+            tf.header.stamp = msg.header.stamp
+            tf.header.frame_id = "odom"
+            tf.child_frame_id = "base_link"
+            tf.transform.translation.x = msg.pose.pose.position.x
+            tf.transform.translation.y = msg.pose.pose.position.y
+            tf.transform.translation.z = msg.pose.pose.position.z
+            tf.transform.rotation = msg.pose.pose.orientation
+            self.tf_broadcaster.sendTransform(tf)
+
+    # ------------------------------------------------------ interactive (RViz)
+    def _initialpose_cb(self, msg: PoseWithCovarianceStamped):
+        """RViz '2D Pose Estimate' click: teleport the robot to the clicked start pose."""
+        if self.episode_running:
+            self.get_logger().warn("episode running; start click ignored")
+            return
+        p = msg.pose.pose
+        x, y, yaw = p.position.x, p.position.y, yaw_from_quat(p.orientation)
+        self.get_logger().info(f"start clicked: ({x:.2f},{y:.2f}, {math.degrees(yaw):.0f} deg) -> teleporting")
+        self.stop()
+        self.teleport(x, y, yaw)
+        self.publish_path_marker([])
+
+    def _rviz_goal_cb(self, msg: PoseStamped):
+        """RViz '2D Goal Pose' click: set the goal and start an episode from the current pose."""
+        if self.episode_running:
+            self.get_logger().warn("episode running; goal click ignored")
+            return
+        g = np.array([msg.pose.position.x, msg.pose.position.y])
+        if DEFAULT_ARENA.clearance(g) < 0.25:
+            self.get_logger().warn(f"goal ({g[0]:.2f},{g[1]:.2f}) is inside/too close to an obstacle; ignored")
+            return
+        self.get_logger().info(f"goal clicked: ({g[0]:.2f},{g[1]:.2f})")
+        self.publish_goal_marker(g)
+        self.clicked_goal = g
+
+    # ------------------------------------------------------------- markers
+    def _marker(self, ns: str, mid: int, mtype: int, rgba, scale=(1.0, 1.0, 1.0)) -> Marker:
+        m = Marker()
+        m.header.frame_id = "odom"
+        m.header.stamp = self.get_clock().now().to_msg()
+        m.ns, m.id, m.type, m.action = ns, mid, mtype, Marker.ADD
+        m.scale.x, m.scale.y, m.scale.z = scale
+        m.color.r, m.color.g, m.color.b, m.color.a = rgba
+        m.pose.orientation.w = 1.0
+        return m
+
+    def publish_arena_markers(self):
+        arena = DEFAULT_ARENA
+        ma = MarkerArray()
+        h = 4.0  # wall centre line (world.sdf)
+        walls = [((0, h), (8.2, 0.1)), ((0, -h), (8.2, 0.1)), ((h, 0), (0.1, 8.2)), ((-h, 0), (0.1, 8.2))]
+        for i, ((cx, cy), (sx, sy)) in enumerate(walls):
+            m = self._marker("arena", i, Marker.CUBE, (0.15, 0.15, 0.15, 0.9), (sx, sy, 0.5))
+            m.pose.position.x, m.pose.position.y, m.pose.position.z = float(cx), float(cy), 0.25
+            ma.markers.append(m)
+        for i, (cx, cy) in enumerate(arena.circ_c):
+            r = float(arena.circ_r[i])
+            m = self._marker("arena", 10 + i, Marker.CYLINDER, (0.4, 0.4, 0.4, 0.95), (2 * r, 2 * r, 1.5))
+            m.pose.position.x, m.pose.position.y, m.pose.position.z = float(cx), float(cy), 0.75
+            ma.markers.append(m)
+        self.arena_pub.publish(ma)
+
+    def publish_goal_marker(self, goal):
+        tol = self.cfg["goal_tolerance"]
+        m = self._marker("goal", 0, Marker.CYLINDER, (1.0, 0.85, 0.0, 0.6), (2 * tol, 2 * tol, 0.02))
+        m.pose.position.x, m.pose.position.y, m.pose.position.z = float(goal[0]), float(goal[1]), 0.01
+        self.goal_marker_pub.publish(m)
+
+    def publish_path_marker(self, traj):
+        m = self._marker("path", 0, Marker.LINE_STRIP, (0.1, 0.4, 1.0, 0.9), (0.04, 0.0, 0.0))
+        if len(traj) < 2:
+            m.action = Marker.DELETE
+        else:
+            from geometry_msgs.msg import Point
+            m.points = [Point(x=float(p[0]), y=float(p[1]), z=0.03) for p in traj]
+        self.path_pub.publish(m)
 
     # -------------------------------------------------------------- policy
     @staticmethod
@@ -170,6 +267,9 @@ class DRLInferenceNode(Node):
             time.sleep(0.05)
 
     def publish_goal(self, goal):
+        self.publish_goal_marker(goal)
+        if self.goal_pub is None:
+            return
         m = PoseStamped()
         m.header.frame_id = "odom"
         m.header.stamp = self.get_clock().now().to_msg()
@@ -212,13 +312,27 @@ class DRLInferenceNode(Node):
     def sample_point(self, clearance=0.6):
         return DEFAULT_ARENA.sample_free(self.rng, clearance, self.cfg["spawn_limit"])
 
-    def run_episode(self, ep: int, writer):
+    def run_episode(self, ep: int, writer, goal=None, teleport=None):
+        """Run one episode.  ``goal`` overrides the random/fixed goal; ``teleport=False`` starts from
+        the robot's current pose (used by the interactive RViz mode)."""
+        a = self.args
+        teleport = (not a.no_teleport) if teleport is None else teleport
+        self.episode_running = True
+        try:
+            return self._run_episode(ep, writer, goal, teleport)
+        finally:
+            self.episode_running = False
+
+    def _run_episode(self, ep, writer, goal_override, teleport):
         a = self.args
         # choose start / goal
-        goal = np.array(a.goal, dtype=float) if a.goal else self.sample_point()
+        if goal_override is not None:
+            goal = np.asarray(goal_override, dtype=float)
+        else:
+            goal = np.array(a.goal, dtype=float) if a.goal else self.sample_point()
         if a.start:
             start = np.array(a.start, dtype=float)
-        elif a.no_teleport:
+        elif not teleport:
             with self.lock:
                 start = self.pos.copy()
         else:
@@ -229,7 +343,8 @@ class DRLInferenceNode(Node):
         yaw0 = a.start_yaw if a.start_yaw is not None else float(self.rng.uniform(-math.pi, math.pi))
 
         self.stop()
-        if not a.no_teleport:
+        self.publish_path_marker([])
+        if teleport:
             # retry: the first set_pose right after Gazebo starts is sometimes ignored
             for attempt in range(4):
                 ok = self.teleport(start[0], start[1], yaw0)
@@ -273,6 +388,8 @@ class DRLInferenceNode(Node):
             path_len += float(np.linalg.norm(st["pos"] - prev_pos))
             prev_pos = st["pos"].copy()
             traj.append(prev_pos.copy())
+            if steps % 3 == 0:
+                self.publish_path_marker(traj)
             ret += self.cfg["r_progress"] * (prev_dist - st["dist"]) + self.cfg["r_step"]
             prev_dist = st["dist"]
             if steps % 10 == 0 or a.verbose:
@@ -329,6 +446,11 @@ def main():
     p.add_argument("--lidar-yaw-offset-deg", type=float, default=0.0,
                    help="rotate the scan if the sensor frame is not aligned with base_link")
     p.add_argument("--speed-scale", type=float, default=1.0)
+    p.add_argument("--interactive", action="store_true",
+                   help="pick start and goal by clicking in RViz ('2D Pose Estimate' = start, "
+                        "'2D Goal Pose' = goal); episodes run until Ctrl+C")
+    p.add_argument("--no-publish-tf", dest="publish_tf", action="store_false",
+                   help="do not broadcast odom->base_link from the ground-truth pose")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--csv", default=None, help="metrics CSV (default results_gazebo/<policy>.csv)")
     p.add_argument("--traj-dir", default=None)
@@ -351,6 +473,7 @@ def main():
             rclpy.shutdown()
             return 1
     node.get_logger().info(f"sensors OK (scan {len(node.scan)} rays)")
+    node.publish_arena_markers()
 
     csv_path = args.csv or f"results_gazebo/{node.policy_name.replace(':', '_').replace('.zip', '')}.csv"
     Path(csv_path).parent.mkdir(parents=True, exist_ok=True)
@@ -361,13 +484,29 @@ def main():
         w = csv.DictWriter(f, fieldnames=fields)
         w.writeheader()
         try:
-            for ep in range(args.episodes):
-                r = node.run_episode(ep, w)
-                f.flush()
-                if r is None:
-                    break
-                rows.append(r)
-                time.sleep(0.5)
+            if args.interactive:
+                node.get_logger().info("INTERACTIVE: in RViz use '2D Pose Estimate' to place the robot and "
+                                       "'2D Goal Pose' to set the goal (each goal click starts an episode). Ctrl+C to quit.")
+                ep = 0
+                while rclpy.ok():
+                    if node.clicked_goal is None:
+                        time.sleep(0.1)
+                        continue
+                    goal, node.clicked_goal = node.clicked_goal, None
+                    r = node.run_episode(ep, w, goal=goal, teleport=False)
+                    f.flush()
+                    if r is not None:
+                        rows.append(r)
+                        ep += 1
+                    node.get_logger().info("click a new goal (and optionally a new start) in RViz")
+            else:
+                for ep in range(args.episodes):
+                    r = node.run_episode(ep, w)
+                    f.flush()
+                    if r is None:
+                        break
+                    rows.append(r)
+                    time.sleep(0.5)
         except KeyboardInterrupt:
             pass
     node.stop()

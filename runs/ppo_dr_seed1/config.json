@@ -1,0 +1,124 @@
+{
+  "algo": "ppo",
+  "steps": 2000000,
+  "seed": 1,
+  "n_envs": 8,
+  "algo_kwargs": {
+    "learning_rate": 0.0003,
+    "n_steps": 512,
+    "batch_size": 256,
+    "n_epochs": 10,
+    "gamma": 0.99,
+    "gae_lambda": 0.95,
+    "clip_range": 0.2,
+    "ent_coef": 0.005,
+    "vf_coef": 0.5,
+    "max_grad_norm": 0.5,
+    "policy_kwargs": {
+      "net_arch": {
+        "pi": [
+          256,
+          256
+        ],
+        "vf": [
+          256,
+          256
+        ]
+      }
+    }
+  },
+  "env_cfg": {
+    "dt": 0.12,
+    "substeps": 4,
+    "max_steps": 300,
+    "n_rays": 360,
+    "n_sectors": 10,
+    "lidar_min": 0.1,
+    "lidar_max": 10.0,
+    "lidar_noise_std": 0.01,
+    "lidar_offset": [
+      -0.06,
+      0.0
+    ],
+    "robot_radius": 0.17,
+    "action_low": [
+      -0.75,
+      -0.75,
+      -1.5
+    ],
+    "action_high": [
+      0.75,
+      0.75,
+      1.5
+    ],
+    "lin_accel": 5.0,
+    "ang_accel": 10.0,
+    "vel_obs": "command",
+    "goal_tolerance": 0.3,
+    "collision_dist": 0.2,
+    "random_start": true,
+    "random_goal": true,
+    "fixed_start": [
+      -2.0,
+      -2.0
+    ],
+    "fixed_goal": [
+      2.5,
+      2.5
+    ],
+    "random_yaw": true,
+    "spawn_limit": 3.2,
+    "spawn_clearance": 0.45,
+    "min_start_goal_dist": 1.5,
+    "r_progress": 5.0,
+    "r_goal": 20.0,
+    "r_collision": -20.0,
+    "r_step": -0.05,
+    "clear_zone": 0.5,
+    "r_clear": 0.3,
+    "r_align": 0.05,
+    "r_smooth": 0.02,
+    "r_timeout": 0.0,
+    "dr": true,
+    "dr_speed_x": [
+      0.6,
+      1.0
+    ],
+    "dr_speed_y": [
+      0.4,
+      1.0
+    ],
+    "dr_speed_w": [
+      0.7,
+      1.0
+    ],
+    "dr_couple_xy": [
+      0.0,
+      0.5
+    ],
+    "dr_lin_accel": [
+      1.5,
+      5.0
+    ],
+    "dr_ang_accel": [
+      3.0,
+      10.0
+    ],
+    "dr_obs_delay": [
+      0,
+      2
+    ],
+    "dr_act_delay": [
+      0,
+      1
+    ],
+    "dr_dt": [
+      0.09,
+      0.15
+    ],
+    "dr_lidar_noise": [
+      0.005,
+      0.03
+    ]
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "tag": "ppo_dr_seed0",
+  "algo": "ppo",
+  "seed": 0,
+  "steps": 2000000,
+  "n_envs": 8,
+  "wall_clock_s": 2811.8436539173126,
+  "steps_per_s": 711.2771000669633,
+  "device": "cpu",
+  "final_model": {
+    "success_rate": 0.99,
+    "collision_rate": 0.01,
+    "timeout_rate": 0.0,
+    "mean_return": 37.0310204,
+    "std_return": 7.972051644879804,
+    "mean_length": 44.28
+  },
+  "best_model": {
+    "success_rate": 0.99,
+    "collision_rate": 0.01,
+    "timeout_rate": 0.0,
+    "mean_return": 37.16452714,
+    "std_return": 8.349954760911558,
+    "mean_length": 45.15
+  }
+}

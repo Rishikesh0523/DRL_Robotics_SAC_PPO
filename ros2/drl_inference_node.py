@@ -63,7 +63,10 @@ def wrap(a: float) -> float:
 
 class DRLInferenceNode(Node):
     def __init__(self, args):
-        super().__init__("drl_inference_node")
+        # Follow Gazebo's /clock so one control step is 0.12 s of *simulated* time even when the
+        # simulator runs far below real time (VirtualBox showed a real-time factor of ~12 %).
+        super().__init__("drl_inference_node", parameter_overrides=[
+            rclpy.parameter.Parameter("use_sim_time", rclpy.Parameter.Type.BOOL, not args.wall_clock)])
         self.args = args
         self.cfg = dict(DEFAULT_CONFIG)
         self.n_sectors = self.cfg["n_sectors"]
@@ -247,6 +250,18 @@ class DRLInferenceNode(Node):
                               [vel[0], vel[1], vel[2], math.hypot(vel[0], vel[1])]]).astype(np.float32)
         return obs, dict(pos=pos, yaw=yaw, dist=dist, min_lidar=float(sectors.min()), sectors=sectors)
 
+    # ---------------------------------------------------------------- clock
+    def now_s(self) -> float:
+        """Current time in seconds: simulation time from /clock (default) or wall time (--wall-clock)."""
+        return self.get_clock().now().nanoseconds * 1e-9
+
+    def sleep_until(self, t_target: float, poll: float = 0.005) -> None:
+        """Block until the (sim or wall) clock reaches ``t_target``; bail out after 10 s of wall time
+        so a paused simulator cannot hang the node."""
+        t0_wall = time.time()
+        while rclpy.ok() and self.now_s() < t_target and time.time() - t0_wall < 10.0:
+            time.sleep(poll)
+
     # ------------------------------------------------------------- actuation
     def send(self, action_norm):
         a = np.clip(np.asarray(action_norm, dtype=np.float32).reshape(-1), -1, 1)
@@ -358,11 +373,11 @@ class DRLInferenceNode(Node):
                     start = self.pos.copy()
                 self.get_logger().warn(f"using current pose ({start[0]:.2f},{start[1]:.2f}) as start")
             time.sleep(0.3)  # let LiDAR refresh at 10 Hz
-        # discard stale scan
+        # discard stale scan and wait for a fresh one (LiDAR is 10 Hz in sim time; slow in a slow VM)
         with self.lock:
             self.scan = None
         t0 = time.time()
-        while self.scan is None and time.time() - t0 < 3.0:
+        while self.scan is None and time.time() - t0 < 15.0:
             time.sleep(0.02)
 
         self.publish_goal(goal)
@@ -379,10 +394,10 @@ class DRLInferenceNode(Node):
                                f"dist {start_dist:.2f} m")
         dt = self.cfg["dt"]
         while rclpy.ok() and steps < a.max_steps:
-            t_step = time.time()
+            t_step = self.now_s()
             act, _ = self.policy.predict(obs, deterministic=True)
             cmd = self.send(act)
-            time.sleep(max(0.0, dt - (time.time() - t_step)))
+            self.sleep_until(t_step + dt)
             obs, st = self.observation(goal)
             steps += 1
             path_len += float(np.linalg.norm(st["pos"] - prev_pos))
@@ -451,6 +466,9 @@ def main():
                         "'2D Goal Pose' = goal); episodes run until Ctrl+C")
     p.add_argument("--no-publish-tf", dest="publish_tf", action="store_false",
                    help="do not broadcast odom->base_link from the ground-truth pose")
+    p.add_argument("--wall-clock", action="store_true",
+                   help="pace control steps by wall time instead of Gazebo /clock (default: sim time, "
+                        "so a slow simulator still gets 0.12 s of simulated time per step)")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--csv", default=None, help="metrics CSV (default results_gazebo/<policy>.csv)")
     p.add_argument("--traj-dir", default=None)
